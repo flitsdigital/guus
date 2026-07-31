@@ -1,0 +1,29 @@
+<!-- ============================================================
+     Webflow → Page Settings → Custom Code → Before </body>
+     Vervang USER/REPO en de tag door die van jou.
+     ============================================================ -->
+
+<style>
+  /* De auto zit op een fixed laag met z-index 0. Je Webflow-content moet
+     erboven: geef je page-wrapper (of elke sectie) relative + z-index 1.
+     Secties waar de auto doorheen moet schijnen: achtergrond transparant. */
+  body { background: #e9e9e5; }
+  .page-wrapper { position: relative; z-index: 1; }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+  import { initCar } from 'https://cdn.jsdelivr.net/gh/USER/REPO@v1.0.0/guus-3d.js';
+
+  initCar({
+    model: 'https://cdn.jsdelivr.net/gh/USER/REPO@v1.0.0/lancia-delta.glb'
+  });
+</script>
