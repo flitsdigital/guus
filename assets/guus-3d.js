@@ -22,7 +22,7 @@ const DEFAULTS = {
   color:     0xb2b2ae,
   roughness: 0.60,
   crease:    34,          // graden — hieronder glad, erboven harde rand
-  reveal:    true,        // opbouw-animatie bij load
+  reveal:    true,        // true, false, of { scatter, spread, scale, fade, duration }
   drag:      true,
   zIndex:    0,
   // scrollchoreografie. p = 0 bovenaan, 1 onderaan de pagina.
@@ -35,6 +35,12 @@ const DEFAULTS = {
     { p: 1.00, rot: 4.55, dist: 7.40, camY: 1.45, lookY: 1.35, panX:  0.00 }
   ]
 };
+
+/* reveal-defaults. scatter = hoe ver een vlak langs zijn normaal naar buiten
+   start (meters), spread = hoe ver de wolk vanuit het midden uitzet,
+   scale = beginformaat van elk vlak, fade = over welk deel van zijn eigen
+   animatie het vlak van alpha 0 naar 1 gaat. */
+const REVEAL_DEFAULTS = { scatter: 0.16, spread: 1.03, scale: 0.62, fade: 0.40, duration: 1750 };
 
 /* exponentiële damping: zelfde gevoel op 60Hz en 144Hz, anders dan een per-frame lerp */
 const damp = (cur, tgt, lambda, dt) => tgt + (cur - tgt) * Math.exp(-lambda * dt);
@@ -136,6 +142,10 @@ export function initCar(userOpts = {}) {
   const opt = { ...DEFAULTS, ...userOpts };
   if (!opt.model) throw new Error('initCar: geen "model" URL opgegeven');
 
+  const rev = opt.reveal
+    ? { ...REVEAL_DEFAULTS, ...(opt.reveal === true ? {} : opt.reveal) }
+    : null;
+
   let mount = opt.mount;
   if (typeof mount === 'string') mount = document.querySelector(mount);
   const owns = !mount;
@@ -184,27 +194,47 @@ export function initCar(userOpts = {}) {
     emissive: 0xffffff, emissiveIntensity: 0
   });
 
-  /* Elk vlak start op 26% grootte, iets naar buiten geduwd langs zijn normaal,
-     en groeit terug op z'n plek. Nooit vanaf scale(0) — dan komt hij uit niets. */
-  if (opt.reveal) {
+  /* Elk vlak fadet in én groeit vanuit een licht naar buiten geduwde positie
+     terug op z'n plek, van achterbumper naar neus.
+
+     De fade gebeurt met een geditherde discard, niet met transparent:true.
+     Reden: een transparant materiaal gaat naar de transparante queue en three
+     sorteert daar per object, niet per driehoek — je kijkt dan dwars door de
+     carrosserie heen. Met discard blijft het materiaal opaque, blijft de
+     dieptetest kloppen, en dithert de alpha weg in screen space. Het patroon
+     is interleaved gradient noise: fijner en minder klonterig dan een
+     sin-hash, en stabiel per pixel dus het kruipt niet. */
+  if (rev) {
     mat.onBeforeCompile = sh => {
-      sh.uniforms.uReveal = { value: REDUCED ? 1 : 0 };
-      sh.uniforms.uSpan   = { value: 0.42 };
+      sh.uniforms.uReveal  = { value: REDUCED ? 1 : 0 };
+      sh.uniforms.uSpan    = { value: 0.42 };
+      sh.uniforms.uScale   = { value: rev.scale };
+      sh.uniforms.uSpread  = { value: rev.spread };
+      sh.uniforms.uScatter = { value: rev.scatter };
+      sh.uniforms.uFade    = { value: rev.fade };
       sh.vertexShader =
         'attribute vec3 aCentroid;\nattribute float aDelay;\n' +
-        'uniform float uReveal;\nuniform float uSpan;\nvarying float vRev;\n' + sh.vertexShader;
+        'uniform float uReveal;\nuniform float uSpan;\nuniform float uScale;\n' +
+        'uniform float uSpread;\nuniform float uScatter;\nvarying float vRev;\n' + sh.vertexShader;
       sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>',
         'float rt = clamp((uReveal - aDelay*(1.0-uSpan))/uSpan, 0.0, 1.0);\n' +
         'float re = 1.0 - pow(1.0 - rt, 3.0);\n' +
         'vRev = re;\n' +
-        'float rs = mix(0.26, 1.0, re);\n' +
-        'vec3 rHome = mix(aCentroid*1.10 + normal*0.42, aCentroid, re);\n' +
+        'float rs = mix(uScale, 1.0, re);\n' +
+        'vec3 rHome = mix(aCentroid*uSpread + normal*uScatter, aCentroid, re);\n' +
         'vec3 transformed = rHome + (position - aCentroid) * rs;');
-      sh.fragmentShader = 'varying float vRev;\n' + sh.fragmentShader;
+      sh.fragmentShader = 'uniform float uFade;\nvarying float vRev;\n' + sh.fragmentShader;
+      sh.fragmentShader = sh.fragmentShader.replace('#include <clipping_planes_fragment>',
+        '#include <clipping_planes_fragment>\n' +
+        'float rA = smoothstep(0.0, uFade, vRev);\n' +
+        'if (rA < 0.999) {\n' +
+        '  float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));\n' +
+        '  if (rA < ign) discard;\n' +
+        '}');
       sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>',
         '#include <dithering_fragment>\n' +
-        'float rEdge = smoothstep(0.08,0.52,vRev) * (1.0 - smoothstep(0.60,1.0,vRev));\n' +
-        'gl_FragColor.rgb += rEdge*0.32;');
+        'float rEdge = smoothstep(0.10,0.55,vRev) * (1.0 - smoothstep(0.62,1.0,vRev));\n' +
+        'gl_FragColor.rgb += rEdge*0.22;');
       mat.userData.sh = sh;
     };
   }
@@ -217,8 +247,8 @@ export function initCar(userOpts = {}) {
   let dragging = false, dragVel = 0, dragSpin = 0, lastX = 0;
   let t0 = 0, lastT = performance.now();
   const intro = { rot: 0, dist: 0, camY: 0 };
-  const INTRO = REDUCED || !opt.reveal ? 0 : 2200;
-  const REVEAL = REDUCED || !opt.reveal ? 0 : 1750;
+  const INTRO  = REDUCED || !rev ? 0 : 2200;
+  const REVEAL = REDUCED || !rev ? 0 : rev.duration;
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), sphere = new THREE.Sphere();
 
   function sample(p) {
