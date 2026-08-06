@@ -1,241 +1,747 @@
-gsap.registerPlugin(CustomEase);
+gsap.registerPlugin(CustomEase, ScrollTrigger, Draggable, InertiaPlugin)
 CustomEase.create("energy", "M0,0 C0.32,0.72 0,1 1,1");
+CustomEase.create("osmo-ease", "0.625, 0.05, 0, 1")
 
 
 // Initialize Fixed Underlay Navigation
 document.addEventListener("DOMContentLoaded", () => {
-    initFixedUnderlayNavigation();
+  // Lenis (with GSAP Scroltrigger)
+  const lenis = new Lenis();
+  lenis.on('scroll', ScrollTrigger.update);
+  gsap.ticker.add((time) => { lenis.raf(time * 1000); });
+  gsap.ticker.lagSmoothing(0);
+
+  initFixedUnderlayNavigation();
+  initStackingCardsParallax();
+  initProjectStackingCards();
+  initCircleReveal();
+  initSliders()
+  initFooterParallax()
+});
+
+function initFixedUnderlayNavigation() {
+  const toggleBtn = document.querySelector("[data-underlay-nav-toggle]");
+  const toggleLabels = document.querySelectorAll(".underlay-nav__toggle-label");
+  const toggleBars = document.querySelectorAll(".underlay-nav__toggle-bar");
+  const menuEl = document.querySelector("[data-underlay-nav-menu]");
+  const largeItems = document.querySelectorAll("[data-reveal-l]");
+  const smallItems = document.querySelectorAll("[data-reveal-s]");
+  const menuBorder = document.querySelector(".underlay-nav__bottom-border");
+  const mainEl = document.querySelector("[data-main]");
+  const overlayEl = document.querySelector("[data-underlay-nav-overlay]");
+  const darkEl = document.querySelector(".underlay-nav__dark");
+  const corners = document.querySelectorAll(".underlay-nav__corner");
+  const overlayBorders = document.querySelectorAll(".underlay-nav__border-row");
+
+  if (!toggleBtn || !menuEl || !mainEl || !overlayEl) return;
+
+  // Sluiten mag sneller dan openen: zelfde curve, hogere snelheid.
+  const CLOSE_SPEED = 1.35;
+
+  // inert alleen als de toggle er niet zelf in zit, anders sluit je jezelf buiten.
+  const CAN_INERT_MAIN = !mainEl.contains(toggleBtn);
+
+  const FOCUSABLE =
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  let isOpen = false;
+  let tl = null;
+  let lastFocused = null;
+  let resizeTimer;
+
+  const getMenuOffset = () => -menuEl.offsetWidth;
+
+  /* ---------------------------------------------------------------- state */
+
+  function resetState() {
+    gsap.set(overlayEl, { visibility: "hidden", pointerEvents: "none" });
+    gsap.set(darkEl, { autoAlpha: 0 });
+    gsap.set(mainEl, { x: 0 });
+    gsap.set(toggleLabels, { yPercent: 0 });
+    gsap.set(toggleBars, { y: 0, rotation: 0 });
+    gsap.set(menuBorder, { scaleX: 0 });
+    gsap.set(overlayBorders[0], { yPercent: -100 });
+    gsap.set(overlayBorders[1], { yPercent: 100 });
+    // Niet vanuit scale 0: dingen verschijnen niet uit het niets.
+    gsap.set(corners, { scale: 0.9, autoAlpha: 0 });
+  }
+
+  function hideOverlay() {
+    gsap.set(overlayEl, { visibility: "hidden", pointerEvents: "none" });
+  }
+
+  function showOverlay() {
+    gsap.set(overlayEl, { visibility: "visible", pointerEvents: "auto" });
+  }
+
+  /* ------------------------------------------------------------ timelines */
+
+  function buildFull() {
+    resetState();
+
+    // Alleen de open-kleur is nodig: de reverse herstelt de dichte kleur zelf.
+    const openColor = getComputedStyle(menuEl).color;
+
+    return gsap
+      .timeline({
+        paused: true,
+        defaults: { ease: "energy", easeReverse: "power2.inOut" },
+        onReverseComplete: hideOverlay,
+      })
+      .to([mainEl, overlayEl], { x: getMenuOffset, duration: 0.5 }, 0)
+      .to(darkEl, { autoAlpha: 1, duration: 0.4 }, 0)
+      .to(corners, { scale: 1, autoAlpha: 1, duration: 0.4 }, 0)
+      .to(overlayBorders, { yPercent: 0, duration: 0.4 }, 0)
+      .to(toggleLabels, { yPercent: -100, duration: 0.3 }, 0)
+      .to(toggleBtn, { color: openColor, duration: 0.3 }, 0)
+      .to(
+        toggleBars[0],
+        {
+          y: "0.25em",
+          rotation: 45,
+          duration: 0.3,
+          ease: "back.out(1.2)",
+          easeReverse: "power3.out",
+        },
+        0,
+      )
+      .to(
+        toggleBars[1],
+        {
+          y: "-0.25em",
+          rotation: -45,
+          duration: 0.3,
+          ease: "back.out(1.2)",
+          easeReverse: "power3.out",
+        },
+        0,
+      )
+      .fromTo(
+        largeItems,
+        { autoAlpha: 0, xPercent: 18 },
+        { autoAlpha: 1, xPercent: 0, duration: 0.45, stagger: 0.04 },
+        0.05,
+      )
+      .fromTo(
+        smallItems,
+        { autoAlpha: 0, yPercent: 60 },
+        {
+          autoAlpha: 1,
+          yPercent: 0,
+          duration: 0.4,
+          stagger: 0.03,
+          ease: "power3.out",
+        },
+        0.15,
+      )
+      .to(menuBorder, { scaleX: 1, duration: 0.4 }, 0.15);
+  }
+
+  function buildReduced() {
+    resetState();
+
+    const openColor = getComputedStyle(menuEl).color;
+
+    // Positie is structureel (het menu ligt eronder), dus die zetten we
+    // direct. Alleen opacity en kleur animeren nog.
+    return gsap
+      .timeline({
+        paused: true,
+        defaults: { ease: "power2.out", duration: 0.2 },
+        onReverseComplete: hideOverlay,
+      })
+      .set([mainEl, overlayEl], { x: getMenuOffset }, 0)
+      .set(overlayBorders, { yPercent: 0 }, 0)
+      .set(toggleLabels, { yPercent: -100 }, 0)
+      .set(toggleBars[0], { y: "0.25em", rotation: 45 }, 0)
+      .set(toggleBars[1], { y: "-0.25em", rotation: -45 }, 0)
+      .set(menuBorder, { scaleX: 1 }, 0)
+      .to(darkEl, { autoAlpha: 1 }, 0)
+      .to(corners, { scale: 1, autoAlpha: 1 }, 0)
+      .to(toggleBtn, { color: openColor }, 0)
+      .fromTo(
+        [largeItems, smallItems],
+        { autoAlpha: 0 },
+        { autoAlpha: 1, xPercent: 0, yPercent: 0 },
+        0,
+      );
+  }
+
+  gsap.matchMedia().add(
+    {
+      full: "(prefers-reduced-motion: no-preference)",
+      reduced: "(prefers-reduced-motion: reduce)",
+    },
+    (ctx) => {
+      tl = ctx.conditions.full ? buildFull() : buildReduced();
+
+      // Voorkeur gewijzigd terwijl het menu openstond: state behouden.
+      if (isOpen) {
+        showOverlay();
+        tl.progress(1);
+      }
+    },
+  );
+
+  /* ---------------------------------------------------------- scroll lock */
+
+  function lockScroll() {
+    document.documentElement.style.overflow = "hidden";
+  }
+
+  function unlockScroll() {
+    document.documentElement.style.overflow = "";
+  }
+
+  /* --------------------------------------------------------------- toggle */
+
+  function setOpen(next) {
+    if (!tl || next === isOpen) return;
+    isOpen = next;
+
+    toggleBtn.setAttribute("aria-expanded", String(isOpen));
+    toggleBtn.setAttribute("aria-label", isOpen ? "Sluit menu" : "Open menu");
+
+    if (isOpen) {
+      lastFocused = document.activeElement;
+      document.body.setAttribute("data-menu-status", "open");
+      if (CAN_INERT_MAIN) mainEl.setAttribute("inert", "");
+      lockScroll();
+      showOverlay();
+
+      // Alleen opnieuw meten als we echt vanaf dicht beginnen. Invalidate
+      // halverwege zou de opgenomen startwaarden wissen en dus springen.
+      if (tl.progress() === 0) tl.invalidate();
+      tl.timeScale(1).play();
+
+      const first = menuEl.querySelector(FOCUSABLE);
+      if (first) first.focus({ preventScroll: true });
+    } else {
+      document.body.removeAttribute("data-menu-status");
+      if (CAN_INERT_MAIN) mainEl.removeAttribute("inert");
+      unlockScroll();
+
+      tl.timeScale(CLOSE_SPEED).reverse();
+
+      const target =
+        lastFocused && document.contains(lastFocused) ? lastFocused : toggleBtn;
+      target.focus({ preventScroll: true });
+    }
+  }
+
+  /* --------------------------------------------------------------- events */
+
+  toggleBtn.addEventListener("click", () => setOpen(!isOpen));
+
+  overlayEl.addEventListener("click", () => setOpen(false));
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && isOpen) setOpen(false);
   });
 
-  function initFixedUnderlayNavigation() {
-    const toggleBtn = document.querySelector("[data-underlay-nav-toggle]");
-    const toggleLabels = document.querySelectorAll(".underlay-nav__toggle-label");
-    const toggleBars = document.querySelectorAll(".underlay-nav__toggle-bar");
-    const menuEl = document.querySelector("[data-underlay-nav-menu]");
-    const largeItems = document.querySelectorAll("[data-reveal-l]");
-    const smallItems = document.querySelectorAll("[data-reveal-s]");
-    const menuBorder = document.querySelector(".underlay-nav__bottom-border");
-    const mainEl = document.querySelector("[data-main]");
-    const overlayEl = document.querySelector("[data-underlay-nav-overlay]");
-    const darkEl = document.querySelector(".underlay-nav__dark");
-    const corners = document.querySelectorAll(".underlay-nav__corner");
-    const overlayBorders = document.querySelectorAll(".underlay-nav__border-row");
-  
-    if (!toggleBtn || !menuEl || !mainEl || !overlayEl) return;
-  
-    // Sluiten mag sneller dan openen: zelfde curve, hogere snelheid.
-    const CLOSE_SPEED = 1.35;
-  
-    // inert alleen als de toggle er niet zelf in zit, anders sluit je jezelf buiten.
-    const CAN_INERT_MAIN = !mainEl.contains(toggleBtn);
-  
-    const FOCUSABLE =
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-  
-    let isOpen = false;
-    let tl = null;
-    let lastFocused = null;
-    let resizeTimer;
-  
-    const getMenuOffset = () => -menuEl.offsetWidth;
-  
-    /* ---------------------------------------------------------------- state */
-  
-    function resetState() {
-      gsap.set(overlayEl, { visibility: "hidden", pointerEvents: "none" });
-      gsap.set(darkEl, { autoAlpha: 0 });
-      gsap.set(mainEl, { x: 0 });
-      gsap.set(toggleLabels, { yPercent: 0 });
-      gsap.set(toggleBars, { y: 0, rotation: 0 });
-      gsap.set(menuBorder, { scaleX: 0 });
-      gsap.set(overlayBorders[0], { yPercent: -100 });
-      gsap.set(overlayBorders[1], { yPercent: 100 });
-      // Niet vanuit scale 0: dingen verschijnen niet uit het niets.
-      gsap.set(corners, { scale: 0.9, autoAlpha: 0 });
+  window.addEventListener("resize", () => {
+    // Bij een open menu direct meebewegen, niet pas na de debounce.
+    if (isOpen && tl && tl.progress() === 1) {
+      gsap.set([mainEl, overlayEl], { x: getMenuOffset() });
     }
-  
-    function hideOverlay() {
-      gsap.set(overlayEl, { visibility: "hidden", pointerEvents: "none" });
-    }
-  
-    function showOverlay() {
-      gsap.set(overlayEl, { visibility: "visible", pointerEvents: "auto" });
-    }
-  
-    /* ------------------------------------------------------------ timelines */
-  
-    function buildFull() {
-      resetState();
-  
-      // Alleen de open-kleur is nodig: de reverse herstelt de dichte kleur zelf.
-      const openColor = getComputedStyle(menuEl).color;
-  
-      return gsap
-        .timeline({
-          paused: true,
-          defaults: { ease: "energy", easeReverse: "power2.inOut" },
-          onReverseComplete: hideOverlay
-        })
-        .to([mainEl, overlayEl], { x: getMenuOffset, duration: 0.5 }, 0)
-        .to(darkEl, { autoAlpha: 1, duration: 0.4 }, 0)
-        .to(corners, { scale: 1, autoAlpha: 1, duration: 0.4 }, 0)
-        .to(overlayBorders, { yPercent: 0, duration: 0.4 }, 0)
-        .to(toggleLabels, { yPercent: -100, duration: 0.3 }, 0)
-        .to(toggleBtn, { color: openColor, duration: 0.3 }, 0)
-        .to(
-          toggleBars[0],
-          {
-            y: "0.25em",
-            rotation: 45,
-            duration: 0.3,
-            ease: "back.out(1.2)",
-            easeReverse: "power3.out"
-          },
-          0
-        )
-        .to(
-          toggleBars[1],
-          {
-            y: "-0.25em",
-            rotation: -45,
-            duration: 0.3,
-            ease: "back.out(1.2)",
-            easeReverse: "power3.out"
-          },
-          0
-        )
-        .fromTo(
-          largeItems,
-          { autoAlpha: 0, xPercent: 18 },
-          { autoAlpha: 1, xPercent: 0, duration: 0.45, stagger: 0.04 },
-          0.05
-        )
-        .fromTo(
-          smallItems,
-          { autoAlpha: 0, yPercent: 60 },
-          {
-            autoAlpha: 1,
-            yPercent: 0,
-            duration: 0.4,
-            stagger: 0.03,
-            ease: "power3.out"
-          },
-          0.15
-        )
-        .to(menuBorder, { scaleX: 1, duration: 0.4 }, 0.15);
-    }
-  
-    function buildReduced() {
-      resetState();
-  
-      const openColor = getComputedStyle(menuEl).color;
-  
-      // Positie is structureel (het menu ligt eronder), dus die zetten we
-      // direct. Alleen opacity en kleur animeren nog.
-      return gsap
-        .timeline({
-          paused: true,
-          defaults: { ease: "power2.out", duration: 0.2 },
-          onReverseComplete: hideOverlay
-        })
-        .set([mainEl, overlayEl], { x: getMenuOffset }, 0)
-        .set(overlayBorders, { yPercent: 0 }, 0)
-        .set(toggleLabels, { yPercent: -100 }, 0)
-        .set(toggleBars[0], { y: "0.25em", rotation: 45 }, 0)
-        .set(toggleBars[1], { y: "-0.25em", rotation: -45 }, 0)
-        .set(menuBorder, { scaleX: 1 }, 0)
-        .to(darkEl, { autoAlpha: 1 }, 0)
-        .to(corners, { scale: 1, autoAlpha: 1 }, 0)
-        .to(toggleBtn, { color: openColor }, 0)
-        .fromTo(
-          [largeItems, smallItems],
-          { autoAlpha: 0 },
-          { autoAlpha: 1, xPercent: 0, yPercent: 0 },
-          0
-        );
-    }
-  
-    gsap.matchMedia().add(
-      {
-        full: "(prefers-reduced-motion: no-preference)",
-        reduced: "(prefers-reduced-motion: reduce)"
+
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!isOpen && tl) tl.invalidate();
+    }, 150);
+  });
+}
+
+function initStackingCardsParallax() {
+  const cards = document.querySelectorAll("[data-stacking-cards-item]");
+
+  if (cards.length < 2) return;
+  cards.forEach((card, i) => {
+    // Sla de eerste card over
+    if (i === 0) return;
+
+    // Als de huidige card in beeld komt, animeer de VORIGE
+    const previousCard = cards[i - 1];
+    if (!previousCard) return;
+
+    let tl = gsap.timeline({
+      defaults: {
+        ease: "none",
+        duration: 1
       },
-      (ctx) => {
-        tl = ctx.conditions.full ? buildFull() : buildReduced();
-  
-        // Voorkeur gewijzigd terwijl het menu openstond: state behouden.
-        if (isOpen) {
-          showOverlay();
-          tl.progress(1);
+      scrollTrigger: {
+        trigger: card,
+        start: "top bottom",
+        end: "top top",
+        scrub: true,
+        invalidateOnRefresh: true
+      }
+    });
+
+    tl.fromTo(previousCard, { yPercent: 0 }, { yPercent: 50 })
+      .fromTo(previousCard, { scale: 1 }, { scale: 0.92, transformOrigin: "center top" }, "<");
+  });
+}
+
+function initProjectStackingCards() {
+  const cards = document.querySelectorAll("[data-stacking-cards-item-project]");
+
+  if (cards.length < 2) return;
+
+  cards.forEach((card, i) => {
+    // Skip over the first section
+    if (i === 0) return;
+
+    // When current section is in view, target the PREVIOUS one
+    const previousCard = cards[i - 1]
+    if (!previousCard) return;
+
+    // Find any element inside the previous card
+    const previousCardImage = previousCard.querySelector("[data-stacking-cards-img]")
+
+    let tl = gsap.timeline({
+      defaults: {
+        ease: "none",
+        duration: 1
+      },
+      scrollTrigger: {
+        trigger: card,
+        start: "top bottom",
+        end: "top top",
+        scrub: true,
+        invalidateOnRefresh: true
+      }
+    })
+
+    tl.fromTo(previousCard, { yPercent: 0 }, { yPercent: 50 })
+      .fromTo(previousCardImage, { yPercent: 0, scale: 1 }, { yPercent: -25, scale: 0.75 }, "<")
+  });
+}
+
+function initCircleReveal() {
+  const REVEAL_SCROLL = 2.2;   // schermen scroll voor de hele reveal
+  const CIRCLE_SCALE = 2.4;   // eindgrootte cirkel (1 = 100vmax breed)
+
+  const section = document.querySelector("[data-reveal]");
+  if (!section) return;
+
+  const circle = section.querySelector("[data-reveal-circle]");
+  const texts = section.querySelectorAll("[data-reveal-text]");
+  const logos = section.querySelectorAll("[data-reveal-logo]");
+  const stickers = section.querySelectorAll("[data-reveal-sticker]");
+  if (!circle) return;
+
+  const angleOf = (el) => parseFloat(el.dataset.stickerRotate) || 0;
+
+  /* ---------------------------------------------------- startposities */
+
+  // CSS-centrering overnemen in GSAP, anders sloopt de scale-tween 'm
+  // Centrering doet de wrapper — GSAP hoeft alleen te schalen
+  gsap.set(circle, { scale: 0, transformOrigin: "50% 50%" }); gsap.set(texts, { autoAlpha: 0, y: 40 });
+  gsap.set(logos, { autoAlpha: 0, y: 24 });
+  stickers.forEach((s) => {
+    gsap.set(s, { autoAlpha: 0, scale: 0, rotate: angleOf(s) - 30 });
+  });
+
+  /* -------------------------------------------------------- timeline */
+
+  const tl = gsap.timeline({
+    defaults: { ease: "none", duration: 1, immediateRender: false },
+    scrollTrigger: {
+      trigger: section,
+      start: "top top",
+      end: () => "+=" + window.innerHeight * REVEAL_SCROLL,
+      pin: true,
+      // De nav zet een transform op <main>, waardoor position:fixed niet
+      // werkt. Met pinType "transform" heeft dat geen effect meer.
+      pinType: "transform",
+      pinSpacing: true,
+      scrub: true,
+      invalidateOnRefresh: true
+    }
+  });
+
+  // De cirkel groeit vanuit het midden van het zwarte blok tot beeldvullend
+  tl.fromTo(circle,
+    { scale: 0 },
+    { scale: CIRCLE_SCALE, duration: 1.4 },
+    0);
+
+  // Tekst komt op als de cirkel ongeveer een derde is
+  tl.fromTo(texts,
+    { autoAlpha: 0, y: 40 },
+    { autoAlpha: 1, y: 0, duration: 0.5, ease: "power2.out" },
+    0.45);
+
+  // Klantlogo's volgen met een stagger
+  tl.fromTo(logos,
+    { autoAlpha: 0, y: 24 },
+    { autoAlpha: 1, y: 0, duration: 0.5, stagger: 0.06, ease: "power2.out" },
+    0.6);
+
+  // Stickers poppen op hun plek in, elk naar zijn eigen rusthoek
+  stickers.forEach((s, i) => {
+    const a = angleOf(s);
+    tl.fromTo(s,
+      { autoAlpha: 0, scale: 0, rotate: a - 30 },
+      { autoAlpha: 1, scale: 1, rotate: a, duration: 0.6, ease: "back.out(1.7)" },
+      0.9 + i * 0.1);
+  });
+}
+
+function initSliders() {
+  const sliderWrappers = gsap.utils.toArray(document.querySelectorAll('[data-centered-slider="wrapper"]'));
+
+  sliderWrappers.forEach((sliderWrapper) => {
+    const slides = gsap.utils.toArray(sliderWrapper.querySelectorAll('[data-centered-slider="slide"]'));
+    const bullets = gsap.utils.toArray(sliderWrapper.querySelectorAll('[data-centered-slider="bullet"]'));
+    const prevButton = sliderWrapper.querySelector('[data-centered-slider="prev-button"]');
+    const nextButton = sliderWrapper.querySelector('[data-centered-slider="next-button"]');
+
+    let activeElement;
+    let activeBullet;
+    let currentIndex = 0;
+    let autoplay;
+
+    // Autoplay is now enabled/disabled via a boolean attribute.
+    const autoplayEnabled = sliderWrapper.getAttribute('data-slider-autoplay') === 'true';
+    
+    // If enabled, get the autoplay duration (in seconds) from the separate attribute.
+    const autoplayDuration = autoplayEnabled ? parseFloat(sliderWrapper.getAttribute('data-slider-autoplay-duration')) || 0 : 0;
+
+    // Dynamically assign unique IDs to slides
+    slides.forEach((slide, i) => {
+      slide.setAttribute("id", `slide-${i}`);
+    });
+    
+    // Set ARIA attributes on bullets if they exist
+    if (bullets && bullets.length > 0) {
+      bullets.forEach((bullet, i) => {
+        bullet.setAttribute("aria-controls", `slide-${i}`);
+        bullet.setAttribute("aria-selected", i === currentIndex ? "true" : "false");
+      });
+    }
+
+    const loop = horizontalLoop(slides, {
+      paused: true,
+      draggable: true,
+      center: true,
+      onChange: (element, index) => {
+        currentIndex = index;
+        
+        if (activeElement) activeElement.classList.remove("active");
+        element.classList.add("active");
+        activeElement = element;
+
+        if (bullets && bullets.length > 0) {
+          if (activeBullet) activeBullet.classList.remove("active");
+          if (bullets[index]) {
+            bullets[index].classList.add("active");
+            activeBullet = bullets[index];
+          }
+          bullets.forEach((bullet, i) => {
+            bullet.setAttribute("aria-selected", i === index ? "true" : "false");
+          });
         }
+        
       }
-    );
-  
-    /* ---------------------------------------------------------- scroll lock */
-  
-    function lockScroll() {
-      document.documentElement.style.overflow = "hidden";
-    }
-  
-    function unlockScroll() {
-      document.documentElement.style.overflow = "";
-    }
-  
-    /* --------------------------------------------------------------- toggle */
-  
-    function setOpen(next) {
-      if (!tl || next === isOpen) return;
-      isOpen = next;
-  
-      toggleBtn.setAttribute("aria-expanded", String(isOpen));
-      toggleBtn.setAttribute("aria-label", isOpen ? "Sluit menu" : "Open menu");
-  
-      if (isOpen) {
-        lastFocused = document.activeElement;
-        document.body.setAttribute("data-menu-status", "open");
-        if (CAN_INERT_MAIN) mainEl.setAttribute("inert", "");
-        lockScroll();
-        showOverlay();
-  
-        // Alleen opnieuw meten als we echt vanaf dicht beginnen. Invalidate
-        // halverwege zou de opgenomen startwaarden wissen en dus springen.
-        if (tl.progress() === 0) tl.invalidate();
-        tl.timeScale(1).play();
-  
-        const first = menuEl.querySelector(FOCUSABLE);
-        if (first) first.focus({ preventScroll: true });
-      } else {
-        document.body.removeAttribute("data-menu-status");
-        if (CAN_INERT_MAIN) mainEl.removeAttribute("inert");
-        unlockScroll();
-  
-        tl.timeScale(CLOSE_SPEED).reverse();
-  
-        const target =
-          lastFocused && document.contains(lastFocused) ? lastFocused : toggleBtn;
-        target.focus({ preventScroll: true });
+    });
+    
+    // On initialization, center the slider
+    loop.toIndex(2, { duration: 0.01 });
+
+    function startAutoplay() {
+      if (autoplayDuration > 0 && !autoplay) {
+        const repeat = () => {
+          loop.next({ ease: "osmo-ease", duration: 0.725 });
+          autoplay = gsap.delayedCall(autoplayDuration, repeat);
+        };
+        autoplay = gsap.delayedCall(autoplayDuration, repeat);
       }
     }
+
+    function stopAutoplay() {
+      if (autoplay) {
+        autoplay.kill();
+        autoplay = null;
+      }
+    }
+
+    // Start/stop autoplay based on viewport visibility via ScrollTrigger
+    ScrollTrigger.create({
+      trigger: sliderWrapper,
+      start: "top bottom",
+      end: "bottom top",
+      onEnter: startAutoplay,
+      onLeave: stopAutoplay,
+      onEnterBack: startAutoplay,
+      onLeaveBack: stopAutoplay
+    });
+
+    // Pause autoplay on mouse hover over the slider
+    sliderWrapper.addEventListener("mouseenter", stopAutoplay);
+    sliderWrapper.addEventListener("mouseleave", () => {
+      if (ScrollTrigger.isInViewport(sliderWrapper)) startAutoplay();
+    });
+
+    // Slide click event for direct navigation
+    slides.forEach((slide, i) => {
+      slide.addEventListener("click", () => {
+        loop.toIndex(i, { ease: "osmo-ease", duration: 0.725 });
+      });
+    });
+
+    // Bullets click event for direct navigation (if available)
+    if (bullets && bullets.length > 0) {
+      bullets.forEach((bullet, i) => {
+        bullet.addEventListener("click", () => {
+          loop.toIndex(i, { ease: "osmo-ease", duration: 0.725 });
+          if (activeBullet) activeBullet.classList.remove("active");
+          bullet.classList.add("active");
+          activeBullet = bullet;
+          bullets.forEach((b, j) => {
+            b.setAttribute("aria-selected", j === i ? "true" : "false");
+          });
+        });
+      });
+    }
+
+    // Prev/Next button listeners (if the buttons exist)
+    if (prevButton) {
+      prevButton.addEventListener("click", () => {
+        let newIndex = currentIndex - 1;
+        if (newIndex < 0) newIndex = slides.length - 1;
+        loop.toIndex(newIndex, { ease: "osmo-ease", duration: 0.725 });
+      });
+    }
+
+    if (nextButton) {
+      nextButton.addEventListener("click", () => {
+        let newIndex = currentIndex + 1;
+        if (newIndex >= slides.length) newIndex = 0;
+        loop.toIndex(newIndex, { ease: "osmo-ease", duration: 0.725 });
+      });
+    }
+    
+  });
+}
+
+// GSAP Helper function to create a looping slider
+// Read more: https://gsap.com/docs/v3/HelperFunctions/helpers/seamlessLoop
+function horizontalLoop(items, config) {
+  let timeline;
+  items = gsap.utils.toArray(items);
+  config = config || {};
+  gsap.context(() => { 
+    let onChange = config.onChange,
+      lastIndex = 0,
+      tl = gsap.timeline({repeat: config.repeat, onUpdate: onChange && function() {
+          let i = tl.closestIndex();
+          if (lastIndex !== i) {
+            lastIndex = i;
+            onChange(items[i], i);
+          }
+        }, paused: config.paused, defaults: {ease: "none"}, onReverseComplete: () => tl.totalTime(tl.rawTime() + tl.duration() * 100)}),
+      length = items.length,
+      startX = items[0].offsetLeft,
+      times = [],
+      widths = [],
+      spaceBefore = [],
+      xPercents = [],
+      curIndex = 0,
+      indexIsDirty = false,
+      center = config.center,
+      pixelsPerSecond = (config.speed || 1) * 100,
+      snap = config.snap === false ? v => v : gsap.utils.snap(config.snap || 1),
+      timeOffset = 0,
+      container = center === true ? items[0].parentNode : gsap.utils.toArray(center)[0] || items[0].parentNode,
+      totalWidth,
+      getTotalWidth = () => items[length-1].offsetLeft + xPercents[length-1] / 100 * widths[length-1] - startX + spaceBefore[0] + items[length-1].offsetWidth * gsap.getProperty(items[length-1], "scaleX") + (parseFloat(config.paddingRight) || 0),
+      populateWidths = () => {
+        let b1 = container.getBoundingClientRect(), b2;
+        items.forEach((el, i) => {
+          widths[i] = parseFloat(gsap.getProperty(el, "width", "px"));
+          xPercents[i] = snap(parseFloat(gsap.getProperty(el, "x", "px")) / widths[i] * 100 + gsap.getProperty(el, "xPercent"));
+          b2 = el.getBoundingClientRect();
+          spaceBefore[i] = b2.left - (i ? b1.right : b1.left);
+          b1 = b2;
+        });
+        gsap.set(items, {
+          xPercent: i => xPercents[i]
+        });
+        totalWidth = getTotalWidth();
+      },
+      timeWrap,
+      populateOffsets = () => {
+        timeOffset = center ? tl.duration() * (container.offsetWidth / 2) / totalWidth : 0;
+        center && times.forEach((t, i) => {
+          times[i] = timeWrap(tl.labels["label" + i] + tl.duration() * widths[i] / 2 / totalWidth - timeOffset);
+        });
+      },
+      getClosest = (values, value, wrap) => {
+        let i = values.length,
+          closest = 1e10,
+          index = 0, d;
+        while (i--) {
+          d = Math.abs(values[i] - value);
+          if (d > wrap / 2) {
+            d = wrap - d;
+          }
+          if (d < closest) {
+            closest = d;
+            index = i;
+          }
+        }
+        return index;
+      },
+      populateTimeline = () => {
+        let i, item, curX, distanceToStart, distanceToLoop;
+        tl.clear();
+        for (i = 0; i < length; i++) {
+          item = items[i];
+          curX = xPercents[i] / 100 * widths[i];
+          distanceToStart = item.offsetLeft + curX - startX + spaceBefore[0];
+          distanceToLoop = distanceToStart + widths[i] * gsap.getProperty(item, "scaleX");
+          tl.to(item, {xPercent: snap((curX - distanceToLoop) / widths[i] * 100), duration: distanceToLoop / pixelsPerSecond}, 0)
+            .fromTo(item, {xPercent: snap((curX - distanceToLoop + totalWidth) / widths[i] * 100)}, {xPercent: xPercents[i], duration: (curX - distanceToLoop + totalWidth - curX) / pixelsPerSecond, immediateRender: false}, distanceToLoop / pixelsPerSecond)
+            .add("label" + i, distanceToStart / pixelsPerSecond);
+          times[i] = distanceToStart / pixelsPerSecond;
+        }
+        timeWrap = gsap.utils.wrap(0, tl.duration());
+      },
+      refresh = (deep) => {
+        let progress = tl.progress();
+        tl.progress(0, true);
+        populateWidths();
+        deep && populateTimeline();
+        populateOffsets();
+        deep && tl.draggable ? tl.time(times[curIndex], true) : tl.progress(progress, true);
+      },
+      onResize = () => refresh(true),
+      proxy;
+    gsap.set(items, {x: 0});
+    populateWidths();
+    populateTimeline();
+    populateOffsets();
+    window.addEventListener("resize", onResize);
+    function toIndex(index, vars) {
+      vars = vars || {};
+      (Math.abs(index - curIndex) > length / 2) && (index += index > curIndex ? -length : length); // always go in the shortest direction
+      let newIndex = gsap.utils.wrap(0, length, index),
+        time = times[newIndex];
+      if (time > tl.time() !== index > curIndex && index !== curIndex) { // if we're wrapping the timeline's playhead, make the proper adjustments
+        time += tl.duration() * (index > curIndex ? 1 : -1);
+      }
+      if (time < 0 || time > tl.duration()) {
+        vars.modifiers = {time: timeWrap};
+      }
+      curIndex = newIndex;
+      vars.overwrite = true;
+      gsap.killTweensOf(proxy);    
+      return vars.duration === 0 ? tl.time(timeWrap(time)) : tl.tweenTo(time, vars);
+    }
+    tl.toIndex = (index, vars) => toIndex(index, vars);
+    tl.closestIndex = setCurrent => {
+      let index = getClosest(times, tl.time(), tl.duration());
+      if (setCurrent) {
+        curIndex = index;
+        indexIsDirty = false;
+      }
+      return index;
+    };
+    tl.current = () => indexIsDirty ? tl.closestIndex(true) : curIndex;
+    tl.next = vars => toIndex(tl.current()+1, vars);
+    tl.previous = vars => toIndex(tl.current()-1, vars);
+    tl.times = times;
+    tl.progress(1, true).progress(0, true); // pre-render for performance
+    if (config.reversed) {
+      tl.vars.onReverseComplete();
+      tl.reverse();
+    }
+    if (config.draggable && typeof(Draggable) === "function") {
+      proxy = document.createElement("div")
+      let wrap = gsap.utils.wrap(0, 1),
+        ratio, startProgress, draggable, dragSnap, lastSnap, initChangeX, wasPlaying,
+        align = () => tl.progress(wrap(startProgress + (draggable.startX - draggable.x) * ratio)),
+        syncIndex = () => tl.closestIndex(true);
+      typeof(InertiaPlugin) === "undefined" && console.warn("InertiaPlugin required for momentum-based scrolling and snapping. https://greensock.com/club");
+      draggable = Draggable.create(proxy, {
+        trigger: items[0].parentNode,
+        type: "x",
+        onPressInit() {
+          let x = this.x;
+          gsap.killTweensOf(tl);
+          wasPlaying = !tl.paused();
+          tl.pause();
+          startProgress = tl.progress();
+          refresh();
+          ratio = 1 / totalWidth;
+          initChangeX = (startProgress / -ratio) - x;
+          gsap.set(proxy, {x: startProgress / -ratio});
+        },
+        onDrag: align,
+        onThrowUpdate: align,
+        overshootTolerance: 0,
+        inertia: true,
+        snap(value) {
+          if (Math.abs(startProgress / -ratio - this.x) < 10) {
+            return lastSnap + initChangeX
+          }
+          let time = -(value * ratio) * tl.duration(),
+            wrappedTime = timeWrap(time),
+            snapTime = times[getClosest(times, wrappedTime, tl.duration())],
+            dif = snapTime - wrappedTime;
+          Math.abs(dif) > tl.duration() / 2 && (dif += dif < 0 ? tl.duration() : -tl.duration());
+          lastSnap = (time + dif) / tl.duration() / -ratio;
+          return lastSnap;
+        },
+        onRelease() {
+          syncIndex();
+          draggable.isThrowing && (indexIsDirty = true);
+        },
+        onThrowComplete: () => {
+          syncIndex();
+          wasPlaying && tl.play();
+        }
+      })[0];
+      tl.draggable = draggable;
+    }
+    tl.closestIndex(true);
+    lastIndex = curIndex;
+    onChange && onChange(items[curIndex], curIndex);
+    timeline = tl;
+    return () => window.removeEventListener("resize", onResize); 
+  });
+  return timeline;
   
-    /* --------------------------------------------------------------- events */
-  
-    toggleBtn.addEventListener("click", () => setOpen(!isOpen));
-  
-    overlayEl.addEventListener("click", () => setOpen(false));
-  
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && isOpen) setOpen(false);
+}
+
+function initFooterParallax(){
+  document.querySelectorAll('[data-footer-parallax]').forEach(el => {
+    const tl = gsap.timeline({
+      scrollTrigger: {
+        trigger: el,
+        start: 'clamp(top bottom)',
+        end: 'clamp(top top)',
+        scrub: true
+      }
     });
   
-    window.addEventListener("resize", () => {
-      // Bij een open menu direct meebewegen, niet pas na de debounce.
-      if (isOpen && tl && tl.progress() === 1) {
-        gsap.set([mainEl, overlayEl], { x: getMenuOffset() });
-      }
+    const inner = el.querySelector('[data-footer-parallax-inner]');
+    const dark  = el.querySelector('[data-footer-parallax-dark]');
   
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        if (!isOpen && tl) tl.invalidate();
-      }, 150);
-    });
-  }
+    if (inner) {
+      tl.from(inner, {
+        yPercent: -25,
+        ease: 'linear'
+      });
+    }
+  
+    if (dark) {
+      tl.from(dark, {
+        opacity: 0.5,
+        ease: 'linear'
+      }, '<');
+    }
+  });
+}
