@@ -1,6 +1,27 @@
-gsap.registerPlugin(CustomEase, ScrollTrigger, Draggable, InertiaPlugin)
+gsap.registerPlugin(CustomEase, ScrollTrigger, Draggable, InertiaPlugin, ScrambleTextPlugin)
 CustomEase.create("energy", "M0,0 C0.32,0.72 0,1 1,1");
 CustomEase.create("osmo-ease", "0.625, 0.05, 0, 1")
+
+// Scramble is een flinke hoeveelheid beweging; live checken, want de
+// voorkeur kan tijdens de sessie wijzigen.
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+// Scramblet een element naar zijn eigen tekst. Het origineel wordt de eerste
+// keer vastgelegd: zonder dat zou een tweede scramble tijdens een lopende de
+// gescramblede tekst als "origineel" nemen en blijft de rommel staan.
+function scrambleTo(el, duration = 0.6) {
+  if (!el || REDUCED_MOTION.matches) return;
+  if (!el.dataset.scrambleLabel) el.dataset.scrambleLabel = el.textContent;
+
+  gsap.to(el, {
+    // "auto" en niet true: true kill élke tween op dit element, dus ook de
+    // autoAlpha/xPercent fade-in uit de nav-timeline. "auto" raakt alleen
+    // een andere lopende scramble.
+    overwrite: "auto",
+    duration,
+    scrambleText: { text: el.dataset.scrambleLabel, chars: "upperCase", speed: 0.6 }
+  });
+}
 
 
 // Initialize Fixed Underlay Navigation
@@ -12,6 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
   gsap.ticker.lagSmoothing(0);
 
   initFixedUnderlayNavigation();
+  initCursorCoordinates();
   initStackingCardsParallax();
   initProjectStackingCards();
   initCircleReveal();
@@ -38,6 +60,12 @@ function initFixedUnderlayNavigation() {
   // Sluiten mag sneller dan openen: zelfde curve, hogere snelheid.
   const CLOSE_SPEED = 1.35;
 
+  // De 3D-auto zit op een eigen fixed laag op <body>, dus buiten <main>.
+  // Zonder deze toevoeging blijft hij staan terwijl de rest naar links gaat.
+  // filter(Boolean): op pagina's zonder auto is de laag er simpelweg niet.
+  const slideEls = [mainEl, overlayEl, document.querySelector("[data-car-layer]")]
+    .filter(Boolean);
+
   // inert alleen als de toggle er niet zelf in zit, anders sluit je jezelf buiten.
   const CAN_INERT_MAIN = !mainEl.contains(toggleBtn);
 
@@ -49,6 +77,10 @@ function initFixedUnderlayNavigation() {
   let lastFocused = null;
   let resizeTimer;
 
+  // Startstatus expliciet zetten, anders bestaat het attribuut pas nadat je
+  // het menu voor het eerst hebt gesloten.
+  document.body.setAttribute("data-menu-status", "closed");
+
   const getMenuOffset = () => -menuEl.offsetWidth;
 
   /* ---------------------------------------------------------------- state */
@@ -56,7 +88,7 @@ function initFixedUnderlayNavigation() {
   function resetState() {
     gsap.set(overlayEl, { visibility: "hidden", pointerEvents: "none" });
     gsap.set(darkEl, { autoAlpha: 0 });
-    gsap.set(mainEl, { x: 0 });
+    gsap.set(slideEls, { x: 0 });
     gsap.set(toggleLabels, { yPercent: 0 });
     gsap.set(toggleBars, { y: 0, rotation: 0 });
     gsap.set(menuBorder, { scaleX: 0 });
@@ -88,7 +120,7 @@ function initFixedUnderlayNavigation() {
         defaults: { ease: "energy", easeReverse: "power2.inOut" },
         onReverseComplete: hideOverlay,
       })
-      .to([mainEl, overlayEl], { x: getMenuOffset, duration: 0.5 }, 0)
+      .to(slideEls, { x: getMenuOffset, duration: 0.5 }, 0)
       .to(darkEl, { autoAlpha: 1, duration: 0.4 }, 0)
       .to(corners, { scale: 1, autoAlpha: 1, duration: 0.4 }, 0)
       .to(overlayBorders, { yPercent: 0, duration: 0.4 }, 0)
@@ -150,7 +182,7 @@ function initFixedUnderlayNavigation() {
         defaults: { ease: "power2.out", duration: 0.2 },
         onReverseComplete: hideOverlay,
       })
-      .set([mainEl, overlayEl], { x: getMenuOffset }, 0)
+      .set(slideEls, { x: getMenuOffset }, 0)
       .set(overlayBorders, { yPercent: 0 }, 0)
       .set(toggleLabels, { yPercent: -100 }, 0)
       .set(toggleBars[0], { y: "0.25em", rotation: 45 }, 0)
@@ -214,10 +246,17 @@ function initFixedUnderlayNavigation() {
       if (tl.progress() === 0) tl.invalidate();
       tl.timeScale(1).play();
 
+      // Los van de timeline: die draait bij sluiten achteruit, en een
+      // omgekeerde scramble ziet er raar uit. Delay volgt de stagger
+      // waarmee de items binnenkomen.
+      largeItems.forEach((el, i) => {
+        gsap.delayedCall(0.05 + i * 0.04, scrambleTo, [el]);
+      });
+
       const first = menuEl.querySelector(FOCUSABLE);
       if (first) first.focus({ preventScroll: true });
     } else {
-      document.body.removeAttribute("data-menu-status");
+      document.body.setAttribute("data-menu-status", "closed");
       if (CAN_INERT_MAIN) mainEl.removeAttribute("inert");
       unlockScroll();
 
@@ -242,13 +281,25 @@ function initFixedUnderlayNavigation() {
   window.addEventListener("resize", () => {
     // Bij een open menu direct meebewegen, niet pas na de debounce.
     if (isOpen && tl && tl.progress() === 1) {
-      gsap.set([mainEl, overlayEl], { x: getMenuOffset() });
+      gsap.set(slideEls, { x: getMenuOffset() });
     }
 
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       if (!isOpen && tl) tl.invalidate();
     }, 150);
+  });
+}
+
+function initCursorCoordinates() {
+  const xEl = document.querySelector('[data-coordinates-x]');
+  const yEl = document.querySelector('[data-coordinates-y]');
+
+  if (!xEl || !yEl) return;
+
+  document.addEventListener('mousemove', (event) => {
+    xEl.textContent = Math.round(event.pageX);
+    yEl.textContent = Math.round(event.pageY);
   });
 }
 
@@ -387,6 +438,49 @@ function initCircleReveal() {
       { autoAlpha: 1, scale: 1, rotate: a, duration: 0.6, ease: "back.out(1.7)" },
       0.9 + i * 0.1);
   });
+
+  /* ------------------------------------------------------- draggable */
+
+  // Draggable schrijft x/y, de timeline autoAlpha/scale/rotate. x/y raakt de
+  // timeline nooit aan, dus een sticker die je versleept animeert bij de
+  // volgende scrub gewoon verder vanaf de plek waar je 'm neerzet.
+  // Alleen desktop: op touch zou een drag het scrollen in de pin blokkeren.
+  gsap.matchMedia().add("(min-width: 768px) and (pointer: fine)", () => {
+    const instances = Array.from(stickers, (s) => {
+      // Rusthoek van deze sticker: waar de timeline 'm neerzet, en dus waar
+      // we bij release naar terug moeten.
+      const rest = angleOf(s);
+
+      return Draggable.create(s, {
+        bounds: section,
+        dragResistance: 0.1,
+        cursor: "grab",
+        activeCursor: "grabbing",
+        // scale en rotate zijn eigenlijk van de timeline. We lenen ze even:
+        // tijdens het slepen scrollt er niets, dus de scrub schrijft toch
+        // niet. Bij release gaan ze terug naar de timeline-waarde.
+        onPress() {
+          gsap.to(this.target, {
+            scale: 1.15,
+            rotate: rest + gsap.utils.random(-20, 20),
+            filter: "drop-shadow(0px 10px 8px rgba(0,0,0,0.3))",
+            duration: 0.15
+          });
+        },
+        onRelease() {
+          gsap.to(this.target, {
+            scale: 1,
+            rotate: rest,
+            filter: "drop-shadow(0px 0px 0px rgba(0,0,0,0))",
+            duration: 0.3,
+            ease: "back.out(3)"
+          });
+        }
+      })[0];
+    });
+
+    return () => instances.forEach((d) => d.kill());
+  });
 }
 
 function initSliders() {
@@ -443,7 +537,10 @@ function initSliders() {
             bullet.setAttribute("aria-selected", i === index ? "true" : "false");
           });
         }
-        
+
+        // Titel van de nieuwe actieve slide laten decoderen. Geen
+        // [data-slider-title] in de slide? Dan gebeurt er niets.
+        scrambleTo(element.querySelector("[data-slider-title]"), 0.5);
       }
     });
     

@@ -27,6 +27,8 @@ const DEFAULTS = {
   zIndex:    0,
   // scrollchoreografie. p = 0 bovenaan, 1 onderaan de pagina.
   // panX verschuift de auto zijwaarts zodat je tekst er niet overheen valt.
+  // Let op: staan er [data-car-slot] elementen op de pagina, dan bepalen die
+  // de positie en wordt panX genegeerd. rot/dist/camY/lookY blijven wel gelden.
   keys: [
     { p: 0.00, rot: 0.62, dist: 7.00, camY: 1.05, lookY: 0.95, panX:  0.00 },
     { p: 0.25, rot: 1.62, dist: 7.60, camY: 0.78, lookY: 0.62, panX: -0.80 },
@@ -151,6 +153,9 @@ export function initCar(userOpts = {}) {
   const owns = !mount;
   if (owns) {
     mount = document.createElement('div');
+    // Handvat voor de site-JS: de nav schuift deze laag mee naar links als
+    // het menu opent, anders blijft de auto over het menu heen staan.
+    mount.setAttribute('data-car-layer', '');
     Object.assign(mount.style, {
       position: 'fixed', inset: '0', zIndex: String(opt.zIndex), pointerEvents: 'none'
     });
@@ -288,10 +293,39 @@ export function initCar(userOpts = {}) {
     const max = document.documentElement.scrollHeight - innerHeight;
     scrollP = max > 0 ? Math.min(1, Math.max(0, scrollY / max)) : 0;
   };
+
+  /* ------------------------------------------------------------------ slots */
+  /* Elk [data-car-slot] element is een doelvak. Staan er slots op de pagina,
+     dan gaat de auto in het dichtstbijzijnde vak staan en scrollt hij ermee
+     mee — hij blijft dus in die sectie achter in plaats van mee te reizen.
+     Geen slots = de oude panX-choreografie over de hele pagina.
+
+     Posities cachen: getBoundingClientRect per frame forceert een layout. */
+  let slots = [];
+  const measureSlots = () => {
+    slots = [...document.querySelectorAll('[data-car-slot]')].map(el => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top + scrollY, left: r.left + scrollX, w: r.width, h: r.height };
+    });
+  };
+
+  /* Actief slot = dat met zijn midden het dichtst bij het midden van het
+     beeld. Liggen twee slots ver uit elkaar, dan wisselt de keuze terwijl
+     de auto toch al buiten beeld is en zie je het omschakelen niet. */
+  const activeSlot = () => {
+    let best = null, bestD = Infinity;
+    for (const s of slots) {
+      const d = Math.abs(s.top + s.h / 2 - scrollY - H / 2);
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    return best;
+  };
+
   const onResize = () => {
     W = mount.clientWidth || innerWidth; H = mount.clientHeight || innerHeight;
     camera.aspect = W / H; camera.updateProjectionMatrix();
     renderer.setSize(W, H);
+    measureSlots();
   };
 
   addEventListener('pointermove', onMove, { passive: true });
@@ -299,7 +333,12 @@ export function initCar(userOpts = {}) {
   addEventListener('pointerup',   onUp);
   addEventListener('scroll',      onScroll, { passive: true });
   addEventListener('resize',      onResize);
+  addEventListener('load',        measureSlots);
+  // ScrollTrigger-pins voegen spacers toe en verschuiven dus alles eronder.
+  // Optioneel: draait de site zonder GSAP, dan slaan we dit over.
+  window.ScrollTrigger?.addEventListener('refresh', measureSlots);
   onScroll();
+  measureSlots();
 
   /* ------------------------------------------------------------------- loop */
   function tick() {
@@ -355,13 +394,25 @@ export function initCar(userOpts = {}) {
 
     // smalle schermen: verder weg en niet pannen, anders valt hij uit beeld
     const narrow = Math.min(1, Math.max(0, (900 - W) / 420));
-    const pan  = s.panX * (1 - narrow);
     const dist = s.dist * (1 + narrow * 0.30);
 
-    camera.position.set(pan + (REDUCED ? 0 : px * 0.30),
-                        s.camY - (REDUCED ? 0 : py * 0.16) + intro.camY,
+    // Waar de auto op het scherm hoort, in wereldunits. Een slot wint van
+    // panX. We verplaatsen de camera de andere kant op: dat schuift de auto
+    // naar het vak toe zonder het kijkhoekje te veranderen.
+    let offX = s.panX * (1 - narrow), offY = 0;
+    const slot = slots.length ? activeSlot() : null;
+    if (slot) {
+      const vExtent = (dist + intro.dist) * Math.tan(camera.fov * Math.PI / 360);
+      const cx = ((slot.left - scrollX + slot.w / 2) / W) * 2 - 1;  // +1 = rechts
+      const cy = -(((slot.top - scrollY + slot.h / 2) / H) * 2 - 1); // +1 = boven
+      offX = -cx * vExtent * camera.aspect * (1 - narrow);
+      offY = -cy * vExtent;
+    }
+
+    camera.position.set(offX + (REDUCED ? 0 : px * 0.30),
+                        s.camY + offY - (REDUCED ? 0 : py * 0.16) + intro.camY,
                         dist + intro.dist);
-    camera.lookAt(pan, s.lookY, 0);
+    camera.lookAt(offX, s.lookY + offY, 0);
 
     cursorLight.position.set(px * 7, -py * 4.5 + 2.2, 5.2);
     cursorLight.intensity = 0.30 + hover * 1.5;
