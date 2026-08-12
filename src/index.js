@@ -6,6 +6,10 @@ CustomEase.create("osmo-ease", "0.625, 0.05, 0, 1")
 // voorkeur kan tijdens de sessie wijzigen.
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+// Tekens waar de scramble doorheen ratelt. Geen letters of cijfers: die lezen
+// als woorden en dat leidt af van de tekst die eronder tevoorschijn komt.
+const SCRAMBLE_CHARS = "!<>-_\\/[]{}=+*^?#%&@~";
+
 // Scramblet een element naar zijn eigen tekst. Het origineel wordt de eerste
 // keer vastgelegd: zonder dat zou een tweede scramble tijdens een lopende de
 // gescramblede tekst als "origineel" nemen en blijft de rommel staan.
@@ -27,7 +31,7 @@ function scrambleTo(target, duration = 0.6) {
     // een andere lopende scramble.
     overwrite: "auto",
     duration,
-    scrambleText: { text: el.dataset.scrambleLabel, chars: "upperCase", speed: 0.6 }
+    scrambleText: { text: el.dataset.scrambleLabel, chars: SCRAMBLE_CHARS, speed: 0.6 }
   });
 }
 
