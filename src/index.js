@@ -81,7 +81,18 @@ function initBootLoader() {
   const statusEl= wrap.querySelector("[data-loader-status]");
   const reveal  = document.querySelectorAll("[data-loader-reveal]");
 
+  // Sein voor de 3D-auto: die houdt zijn scatter-reveal vast tot dit valt,
+  // anders speelt hij af achter een dicht laadscherm. Eén keer, en ook in het
+  // reduced-motion pad — zonder dit blijft de auto onzichtbaar.
+  let carStarted = false;
+  const startCar = () => {
+    if (carStarted) return;
+    carStarted = true;
+    window.dispatchEvent(new Event("loader:done"));
+  };
+
   const done = () => {
+    startCar();
     wrap.remove();
     // De auto cachet zijn slotposities. De hero heeft net bewogen, dus even
     // opnieuw laten meten, anders staat hij naast zijn vak.
@@ -148,21 +159,26 @@ function initBootLoader() {
   tl.to(corners, {
     scale: 1.6,
     autoAlpha: 0,
-    duration: 0.5,
-    stagger: 0.04,
+    duration: 0.45,
+    stagger: 0.03,
     ease: "power3.in"
   }, ">-0.1");
 
-  tl.to(readout, { autoAlpha: 0, y: -8, duration: 0.35 }, "<");
+  tl.to(readout, { autoAlpha: 0, y: -8, duration: 0.3 }, "<");
 
-  // Achtergrond wipet omhoog weg en legt de site bloot
-  tl.to(bg, { yPercent: -101, duration: 0.9, ease: "osmo-ease" }, "<0.2");
+  // De auto begint op te bouwen terwijl de achtergrond nog wijkt, zodat je
+  // hem ziet ontstaan in plaats van er kant-en-klaar te vinden.
+  tl.call(startCar, null, "<0.15");
+
+  // Overlappend, niet na elkaar: anders sta je even naar een leeg vlak te
+  // kijken voor de wipe begint.
+  tl.to(bg, { yPercent: -101, duration: 0.9, ease: "osmo-ease" }, "<");
 
   if (reveal.length) {
     tl.fromTo(reveal,
       { autoAlpha: 0, y: 40 },
       { autoAlpha: 1, y: 0, duration: 0.9, ease: "osmo-ease" },
-      "<0.1");
+      "<0.15");
   }
 }
 

@@ -251,6 +251,16 @@ export function initCar(userOpts = {}) {
   let hoverT = 0, hover = 0;
   let dragging = false, dragVel = 0, dragSpin = 0, lastX = 0;
   let t0 = 0, lastT = performance.now();
+
+  /* Zolang t0 nul is staat uReveal op 0: de auto ligt uit elkaar en is niet
+     te zien. Vanaf startIntro() loopt de scatter-reveal en de aanvliegroute
+     van de camera. Zo speelt de mooiste animatie van de site niet achter een
+     laadscherm weg. */
+  const startIntro = () => {
+    if (t0) return;
+    t0 = performance.now();
+    lastT = t0;
+  };
   const intro = { rot: 0, dist: 0, camY: 0 };
   const INTRO  = REDUCED || !rev ? 0 : 2200;
   const REVEAL = REDUCED || !rev ? 0 : rev.duration;
@@ -447,9 +457,17 @@ export function initCar(userOpts = {}) {
 
       renderer.compile(scene, camera);
       requestAnimationFrame(() => {
-        t0 = performance.now();
-        lastT = t0;
+        lastT = performance.now();
         tick();
+
+        // Staat er een laadscherm op de pagina? Dan wachten we op zijn sein.
+        // Geen loader: meteen beginnen, zoals voorheen.
+        if (document.querySelector("[data-loader]")) {
+          addEventListener("loader:done", startIntro, { once: true });
+        } else {
+          startIntro();
+        }
+
         resolve(car);
       });
     }, undefined, reject);
