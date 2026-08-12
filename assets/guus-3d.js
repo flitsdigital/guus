@@ -409,10 +409,20 @@ export function initCar(userOpts = {}) {
       offY = -cy * vExtent;
     }
 
+    // Met een slot mikken we op het midden van de auto zélf in plaats van op
+    // lookY uit de keys. Anders landt hij structureel onder het vak, want het
+    // model hangt op y = -0.72. Het hoogteverschil camera/doel blijft gelijk,
+    // dus de kijkhoek uit de keys verandert niet.
+    let aimY = s.lookY;
+    if (slot && car) {
+      const bs = car.geometry.boundingSphere;
+      aimY = car.position.y + (bs ? bs.center.y : 0);
+    }
+
     camera.position.set(offX + (REDUCED ? 0 : px * 0.30),
-                        s.camY + offY - (REDUCED ? 0 : py * 0.16) + intro.camY,
+                        aimY + (s.camY - s.lookY) + offY - (REDUCED ? 0 : py * 0.16) + intro.camY,
                         dist + intro.dist);
-    camera.lookAt(offX, s.lookY + offY, 0);
+    camera.lookAt(offX, aimY + offY, 0);
 
     cursorLight.position.set(px * 7, -py * 4.5 + 2.2, 5.2);
     cursorLight.intensity = 0.30 + hover * 1.5;
