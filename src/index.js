@@ -20,7 +20,7 @@ const SCRAMBLE_CHARS = "!<>-_\\/[]{}=+*^?#%&@~";
 // stoppen, want dan weten we niet welke de tekst is.
 const textLeaf = (el) => (el.children.length === 1 ? textLeaf(el.children[0]) : el);
 
-function scrambleTo(target, duration = 0.6) {
+function scrambleTo(target, duration = 0.6, text) {
   if (!target || REDUCED_MOTION.matches) return;
   const el = textLeaf(target);
   if (!el.dataset.scrambleLabel) el.dataset.scrambleLabel = el.textContent;
@@ -31,7 +31,8 @@ function scrambleTo(target, duration = 0.6) {
     // een andere lopende scramble.
     overwrite: "auto",
     duration,
-    scrambleText: { text: el.dataset.scrambleLabel, chars: SCRAMBLE_CHARS, speed: 0.6 }
+    // Zonder text-argument scramblet hij naar zijn eigen tekst terug.
+    scrambleText: { text: text ?? el.dataset.scrambleLabel, chars: SCRAMBLE_CHARS, speed: 0.6 }
   });
 }
 
@@ -44,6 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
   gsap.ticker.add((time) => { lenis.raf(time * 1000); });
   gsap.ticker.lagSmoothing(0);
 
+  initBootLoader();
   initFixedUnderlayNavigation();
   initCursorCoordinates();
   initStackingCardsParallax();
@@ -52,6 +54,115 @@ document.addEventListener("DOMContentLoaded", () => {
   initSliders()
   initFooterParallax()
 });
+
+function initBootLoader() {
+  /* ------------------------------------------------------ instellingen */
+
+  // Fases waar de status doorheen scramblet. Laatste blijft staan tot het
+  // eind, dus zet daar je merknaam neer.
+  const PHASES = ["GEOMETRIE", "MATERIALEN", "BELICHTING", "GUUS3D"];
+
+  const COUNT_DURATION = 2.2;  // sec van 000 naar 100
+  const BAR_LENGTH     = 20;   // aantal tekens in de balk
+  // Blokjes vallen terug op ASCII als je mono font ze niet heeft: ["#", "-"]
+  const BAR_FILLED     = "█";
+  const BAR_EMPTY      = "░";
+
+  /* ------------------------------------------------------------ elementen */
+
+  const wrap = document.querySelector("[data-loader]");
+  if (!wrap) return;
+
+  const bg      = wrap.querySelector("[data-loader-bg]");
+  const corners = wrap.querySelectorAll("[data-loader-corner]");
+  const readout = wrap.querySelector("[data-loader-readout]");
+  const barEl   = wrap.querySelector("[data-loader-bar]");
+  const countEl = wrap.querySelector("[data-loader-count]");
+  const statusEl= wrap.querySelector("[data-loader-status]");
+  const reveal  = document.querySelectorAll("[data-loader-reveal]");
+
+  const done = () => {
+    wrap.remove();
+    // De auto cachet zijn slotposities. De hero heeft net bewogen, dus even
+    // opnieuw laten meten, anders staat hij naast zijn vak.
+    window.dispatchEvent(new Event("resize"));
+  };
+
+  // Geen animaties gewenst? Dan geen loader — meteen de site laten zien.
+  if (REDUCED_MOTION.matches) {
+    gsap.set(reveal, { autoAlpha: 1 });
+    done();
+    return;
+  }
+
+  /* -------------------------------------------------------------- opbouw */
+
+  gsap.set(wrap, { autoAlpha: 1 });
+  gsap.set(corners, { scale: 0.4, autoAlpha: 0 });
+  gsap.set(readout, { autoAlpha: 0, y: 8 });
+
+  const progress = { value: 0 };
+
+  const tl = gsap.timeline({ onComplete: done });
+
+  // Hoeken spannen de viewport op
+  tl.to(corners, {
+    scale: 1,
+    autoAlpha: 1,
+    duration: 0.5,
+    stagger: 0.06,
+    ease: "back.out(2)"
+  }, 0);
+
+  tl.to(readout, { autoAlpha: 1, y: 0, duration: 0.4 }, 0.2);
+
+  // Teller en tekstbalk lopen van hetzelfde getal
+  tl.to(progress, {
+    value: 100,
+    duration: COUNT_DURATION,
+    ease: "power1.inOut",
+    onUpdate() {
+      const p = Math.round(progress.value);
+      if (countEl) countEl.textContent = String(p).padStart(3, "0");
+      if (barEl) {
+        const filled = Math.round((p / 100) * BAR_LENGTH);
+        barEl.textContent =
+          BAR_FILLED.repeat(filled) + BAR_EMPTY.repeat(BAR_LENGTH - filled);
+      }
+    }
+  }, 0.3);
+
+  // Status scramblet door de fases, verdeeld over de looptijd van de teller
+  PHASES.forEach((phase, i) => {
+    tl.call(
+      () => scrambleTo(statusEl, 0.4, phase),
+      null,
+      0.3 + (i * COUNT_DURATION) / PHASES.length
+    );
+  });
+
+  /* --------------------------------------------------------------- afscheid */
+
+  tl.to(corners, {
+    scale: 1.6,
+    autoAlpha: 0,
+    duration: 0.5,
+    stagger: 0.04,
+    ease: "power3.in"
+  }, ">-0.1");
+
+  tl.to(readout, { autoAlpha: 0, y: -8, duration: 0.35 }, "<");
+
+  // Achtergrond wipet omhoog weg en legt de site bloot
+  tl.to(bg, { yPercent: -101, duration: 0.9, ease: "osmo-ease" }, "<0.2");
+
+  if (reveal.length) {
+    tl.fromTo(reveal,
+      { autoAlpha: 0, y: 40 },
+      { autoAlpha: 1, y: 0, duration: 0.9, ease: "osmo-ease" },
+      "<0.1");
+  }
+}
 
 function initFixedUnderlayNavigation() {
   const toggleBtn = document.querySelector("[data-underlay-nav-toggle]");
