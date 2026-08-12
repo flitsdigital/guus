@@ -123,11 +123,13 @@ function initBootLoader() {
     ease: "power1.inOut",
     onUpdate() {
       const p = Math.round(progress.value);
-      if (countEl) countEl.textContent = String(p).padStart(3, "0");
+      // Haakjes en procent zitten in de string, dat scheelt losse elementen
+      // in Webflow en houdt de regel in één keer op zijn plek.
+      if (countEl) countEl.textContent = String(p).padStart(3, "0") + "%";
       if (barEl) {
         const filled = Math.round((p / 100) * BAR_LENGTH);
         barEl.textContent =
-          BAR_FILLED.repeat(filled) + BAR_EMPTY.repeat(BAR_LENGTH - filled);
+          "[" + BAR_FILLED.repeat(filled) + BAR_EMPTY.repeat(BAR_LENGTH - filled) + "]";
       }
     }
   }, 0.3);
