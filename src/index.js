@@ -9,8 +9,16 @@ const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 // Scramblet een element naar zijn eigen tekst. Het origineel wordt de eerste
 // keer vastgelegd: zonder dat zou een tweede scramble tijdens een lopende de
 // gescramblede tekst als "origineel" nemen en blijft de rommel staan.
-function scrambleTo(el, duration = 0.6) {
-  if (!el || REDUCED_MOTION.matches) return;
+// Webflow wikkelt tekst bijna altijd in een <a> met daarin een <span> die de
+// opmaak draagt. ScrambleText schrijft platte tekst, dus we moeten dat
+// binnenste element raken — scramble je de wrapper, dan sloop je de link en
+// de font-size mee. Afdalen zolang er precies één kind is; bij meer kinderen
+// stoppen, want dan weten we niet welke de tekst is.
+const textLeaf = (el) => (el.children.length === 1 ? textLeaf(el.children[0]) : el);
+
+function scrambleTo(target, duration = 0.6) {
+  if (!target || REDUCED_MOTION.matches) return;
+  const el = textLeaf(target);
   if (!el.dataset.scrambleLabel) el.dataset.scrambleLabel = el.textContent;
 
   gsap.to(el, {
