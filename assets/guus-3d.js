@@ -460,9 +460,12 @@ export function initCar(userOpts = {}) {
         lastT = performance.now();
         tick();
 
-        // Staat er een laadscherm op de pagina? Dan wachten we op zijn sein.
-        // Geen loader: meteen beginnen, zoals voorheen.
-        if (document.querySelector("[data-loader]")) {
+        // Staat er een laadscherm op de pagina dat nog niet klaar is? Dan
+        // wachten we op zijn sein. Het attribuut is nodig naast de event:
+        // een trage .glb kan pas binnen zijn nadat de loader al weg is, en
+        // dan wacht een luisteraar eeuwig op iets dat al gebeurd is.
+        const el = document.documentElement;
+        if (document.querySelector("[data-loader]") && !el.hasAttribute("data-loader-done")) {
           addEventListener("loader:done", startIntro, { once: true });
         } else {
           startIntro();

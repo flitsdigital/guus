@@ -88,6 +88,10 @@ function initBootLoader() {
   const startCar = () => {
     if (carStarted) return;
     carStarted = true;
+    // Attribuut én event: het model kan pas ná dit moment klaar zijn met
+    // laden, en dan is de event al gevallen. Het attribuut blijft staan,
+    // dus een late luisteraar ziet alsnog dat hij mag beginnen.
+    document.documentElement.setAttribute("data-loader-done", "");
     window.dispatchEvent(new Event("loader:done"));
   };
 
@@ -207,6 +211,15 @@ function initFixedUnderlayNavigation() {
   const slideEls = [mainEl, overlayEl, document.querySelector("[data-car-layer]")]
     .filter(Boolean);
 
+  // Niet elke build heeft alle nav-onderdelen. GSAP roept luid "target not
+  // found" bij een leeg doel, dus slaan we die tweens gewoon over in plaats
+  // van de console vol te schrijven met dode animaties.
+  const has = (t) => !!t && (t.length === undefined || t.length > 0);
+  const setIf = (t, vars) => { if (has(t)) gsap.set(t, vars); };
+  const toIf = (tl, t, vars, pos) => { if (has(t)) tl.to(t, vars, pos); };
+  const setTlIf = (tl, t, vars, pos) => { if (has(t)) tl.set(t, vars, pos); };
+  const fromToIf = (tl, t, a, b, pos) => { if (has(t)) tl.fromTo(t, a, b, pos); };
+
   // inert alleen als de toggle er niet zelf in zit, anders sluit je jezelf buiten.
   const CAN_INERT_MAIN = !mainEl.contains(toggleBtn);
 
@@ -227,16 +240,16 @@ function initFixedUnderlayNavigation() {
   /* ---------------------------------------------------------------- state */
 
   function resetState() {
-    gsap.set(overlayEl, { visibility: "hidden", pointerEvents: "none" });
-    gsap.set(darkEl, { autoAlpha: 0 });
-    gsap.set(slideEls, { x: 0 });
-    gsap.set(toggleLabels, { yPercent: 0 });
-    gsap.set(toggleBars, { y: 0, rotation: 0 });
-    gsap.set(menuBorder, { scaleX: 0 });
-    gsap.set(overlayBorders[0], { yPercent: -100 });
-    gsap.set(overlayBorders[1], { yPercent: 100 });
+    setIf(overlayEl, { visibility: "hidden", pointerEvents: "none" });
+    setIf(darkEl, { autoAlpha: 0 });
+    setIf(slideEls, { x: 0 });
+    setIf(toggleLabels, { yPercent: 0 });
+    setIf(toggleBars, { y: 0, rotation: 0 });
+    setIf(menuBorder, { scaleX: 0 });
+    setIf(overlayBorders[0], { yPercent: -100 });
+    setIf(overlayBorders[1], { yPercent: 100 });
     // Niet vanuit scale 0: dingen verschijnen niet uit het niets.
-    gsap.set(corners, { scale: 0.9, autoAlpha: 0 });
+    setIf(corners, { scale: 0.9, autoAlpha: 0 });
   }
 
   function hideOverlay() {
@@ -255,59 +268,25 @@ function initFixedUnderlayNavigation() {
     // Alleen de open-kleur is nodig: de reverse herstelt de dichte kleur zelf.
     const openColor = getComputedStyle(menuEl).color;
 
-    return gsap
-      .timeline({
-        paused: true,
-        defaults: { ease: "energy", easeReverse: "power2.inOut" },
-        onReverseComplete: hideOverlay,
-      })
-      .to(slideEls, { x: getMenuOffset, duration: 0.5 }, 0)
-      .to(darkEl, { autoAlpha: 1, duration: 0.4 }, 0)
-      .to(corners, { scale: 1, autoAlpha: 1, duration: 0.4 }, 0)
-      .to(overlayBorders, { yPercent: 0, duration: 0.4 }, 0)
-      .to(toggleLabels, { yPercent: -100, duration: 0.3 }, 0)
-      .to(toggleBtn, { color: openColor, duration: 0.3 }, 0)
-      .to(
-        toggleBars[0],
-        {
-          y: "0.25em",
-          rotation: 45,
-          duration: 0.3,
-          ease: "back.out(1.2)",
-          easeReverse: "power3.out",
-        },
-        0,
-      )
-      .to(
-        toggleBars[1],
-        {
-          y: "-0.25em",
-          rotation: -45,
-          duration: 0.3,
-          ease: "back.out(1.2)",
-          easeReverse: "power3.out",
-        },
-        0,
-      )
-      .fromTo(
-        largeItems,
-        { autoAlpha: 0, xPercent: 18 },
-        { autoAlpha: 1, xPercent: 0, duration: 0.45, stagger: 0.04 },
-        0.05,
-      )
-      .fromTo(
-        smallItems,
-        { autoAlpha: 0, yPercent: 60 },
-        {
-          autoAlpha: 1,
-          yPercent: 0,
-          duration: 0.4,
-          stagger: 0.03,
-          ease: "power3.out",
-        },
-        0.15,
-      )
-      .to(menuBorder, { scaleX: 1, duration: 0.4 }, 0.15);
+    const tl = gsap.timeline({
+      paused: true,
+      defaults: { ease: "energy", easeReverse: "power2.inOut" },
+      onReverseComplete: hideOverlay,
+    });
+
+    toIf(tl, slideEls, { x: getMenuOffset, duration: 0.5 }, 0);
+    toIf(tl, darkEl, { autoAlpha: 1, duration: 0.4 }, 0);
+    toIf(tl, corners, { scale: 1, autoAlpha: 1, duration: 0.4 }, 0);
+    toIf(tl, overlayBorders, { yPercent: 0, duration: 0.4 }, 0);
+    toIf(tl, toggleLabels, { yPercent: -100, duration: 0.3 }, 0);
+    toIf(tl, toggleBtn, { color: openColor, duration: 0.3 }, 0);
+    toIf(tl, toggleBars[0], { y: "0.25em", rotation: 45, duration: 0.3, ease: "back.out(1.2)", easeReverse: "power3.out" }, 0);
+    toIf(tl, toggleBars[1], { y: "-0.25em", rotation: -45, duration: 0.3, ease: "back.out(1.2)", easeReverse: "power3.out" }, 0);
+    fromToIf(tl, largeItems, { autoAlpha: 0, xPercent: 18 }, { autoAlpha: 1, xPercent: 0, duration: 0.45, stagger: 0.04 }, 0.05);
+    fromToIf(tl, smallItems, { autoAlpha: 0, yPercent: 60 }, { autoAlpha: 1, yPercent: 0, duration: 0.4, stagger: 0.03, ease: "power3.out" }, 0.15);
+    toIf(tl, menuBorder, { scaleX: 1, duration: 0.4 }, 0.15);
+
+    return tl;
   }
 
   function buildReduced() {
@@ -317,27 +296,24 @@ function initFixedUnderlayNavigation() {
 
     // Positie is structureel (het menu ligt eronder), dus die zetten we
     // direct. Alleen opacity en kleur animeren nog.
-    return gsap
-      .timeline({
-        paused: true,
-        defaults: { ease: "power2.out", duration: 0.2 },
-        onReverseComplete: hideOverlay,
-      })
-      .set(slideEls, { x: getMenuOffset }, 0)
-      .set(overlayBorders, { yPercent: 0 }, 0)
-      .set(toggleLabels, { yPercent: -100 }, 0)
-      .set(toggleBars[0], { y: "0.25em", rotation: 45 }, 0)
-      .set(toggleBars[1], { y: "-0.25em", rotation: -45 }, 0)
-      .set(menuBorder, { scaleX: 1 }, 0)
-      .to(darkEl, { autoAlpha: 1 }, 0)
-      .to(corners, { scale: 1, autoAlpha: 1 }, 0)
-      .to(toggleBtn, { color: openColor }, 0)
-      .fromTo(
-        [largeItems, smallItems],
-        { autoAlpha: 0 },
-        { autoAlpha: 1, xPercent: 0, yPercent: 0 },
-        0,
-      );
+    const tl = gsap.timeline({
+      paused: true,
+      defaults: { ease: "power2.out", duration: 0.2 },
+      onReverseComplete: hideOverlay,
+    });
+
+    setTlIf(tl, slideEls, { x: getMenuOffset }, 0);
+    setTlIf(tl, overlayBorders, { yPercent: 0 }, 0);
+    setTlIf(tl, toggleLabels, { yPercent: -100 }, 0);
+    setTlIf(tl, toggleBars[0], { y: "0.25em", rotation: 45 }, 0);
+    setTlIf(tl, toggleBars[1], { y: "-0.25em", rotation: -45 }, 0);
+    setTlIf(tl, menuBorder, { scaleX: 1 }, 0);
+    toIf(tl, darkEl, { autoAlpha: 1 }, 0);
+    toIf(tl, corners, { scale: 1, autoAlpha: 1 }, 0);
+    toIf(tl, toggleBtn, { color: openColor }, 0);
+    fromToIf(tl, [...largeItems, ...smallItems], { autoAlpha: 0 }, { autoAlpha: 1, xPercent: 0, yPercent: 0 }, 0);
+
+    return tl;
   }
 
   gsap.matchMedia().add(
